@@ -5,35 +5,80 @@ import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { supabase } from '@/lib/supabase';
 
+interface ClothImage {
+  id: number;
+  url: string;
+  created_at: string;
+}
+
+interface Profile {
+  image_url: string;
+}
+
 export default function Upload() {
   const router = useRouter();
-  const [manImage, setManImage] = useState<File | null>(null);
   const [clothImage, setClothImage] = useState<File | null>(null);
-  const [manPreview, setManPreview] = useState<string>("");
   const [clothPreview, setClothPreview] = useState<string>("");
   const [resultImage, setResultImage] = useState<string>("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [clothImages, setClothImages] = useState<ClothImage[]>([]);
+  const [selectedClothImage, setSelectedClothImage] = useState<string | null>(null);
+  const [profileImage, setProfileImage] = useState<string | null>(null);
 
   useEffect(() => {
-    const checkSession = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        router.push('/auth/signin');
+    const checkSessionAndLoadData = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) {
+          router.push('/auth/signin');
+          return;
+        }
+
+        // Load user's profile image
+        const { data: profile, error: profileError } = await supabase
+          .from('profiles')
+          .select('image_url')
+          .eq('user_id', session.user.id)
+          .single();
+
+        if (profileError) {
+          console.error('Error loading profile:', profileError);
+          if (profileError.code === 'PGRST116') {
+            router.push('/profile/setup');
+            return;
+          }
+        }
+
+        if (profile?.image_url) {
+          setProfileImage(profile.image_url);
+        } else {
+          router.push('/profile/setup');
+          return;
+        }
+
+        // Load user's cloth images
+        const { data: clothes, error: clothesError } = await supabase
+          .from('clothes')
+          .select('*')
+          .eq('user_id', session.user.id)
+          .order('created_at', { ascending: false });
+
+        if (clothesError) {
+          throw clothesError;
+        }
+
+        setClothImages(clothes || []);
+      } catch (err: any) {
+        console.error('Error:', err);
+        setError(err.message);
       }
     };
-    checkSession();
+
+    checkSessionAndLoadData();
   }, [router]);
 
-  const handleManImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      setManImage(file);
-      setManPreview(URL.createObjectURL(file));
-    }
-  };
-
-  const handleClothImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleClothImageChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
       setClothImage(file);
@@ -41,10 +86,10 @@ export default function Upload() {
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleUploadCloth = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!manImage || !clothImage) {
-      setError("Please select both images");
+    if (!clothImage) {
+      setError("Please select an image");
       return;
     }
 
@@ -55,43 +100,69 @@ export default function Upload() {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) throw new Error('Not authenticated');
 
-      const uploadImage = async (image: File, index: number) => {
-        try {
-          const fileExt = image.name.split('.').pop();
-          const fileName = `${session.user.id}/${Date.now()}-${index}.${fileExt}`;
-          
-          const { data, error } = await supabase.storage
-            .from('clothes')
-            .upload(fileName, image);
-
-          if (error) {
-            console.error('Upload error:', error);
-            throw new Error(`Failed to upload image ${index}: ${error.message}`);
-          }
-          
-          const { data: { publicUrl } } = supabase.storage
-            .from('clothes')
-            .getPublicUrl(fileName);
-
-          return publicUrl;
-        } catch (err) {
-          console.error(`Error uploading image ${index}:`, err);
-          throw err;
-        }
-      };
-
-      const [url1, url2] = await Promise.all([
-        uploadImage(manImage, 1),
-        uploadImage(clothImage, 2)
-      ]);
-
-      console.log('Sending request with URLs:', { url1, url2 });
+      const fileExt = clothImage.name.split('.').pop();
+      const fileName = `${session.user.id}/${Date.now()}.${fileExt}`;
       
-      const functionBody = {
-        image1: url1,
-        image2: url2
-      };
-      console.log('Request body:', functionBody);
+      const { error: uploadError } = await supabase.storage
+        .from('clothes')
+        .upload(fileName, clothImage);
+
+      if (uploadError) {
+        throw new Error(`Failed to upload image: ${uploadError.message}`);
+      }
+      
+      const { data: { publicUrl } } = supabase.storage
+        .from('clothes')
+        .getPublicUrl(fileName);
+
+      // Save to clothes table
+      const { error: dbError } = await supabase
+        .from('clothes')
+        .insert([{
+          user_id: session.user.id,
+          url: publicUrl
+        }]);
+
+      if (dbError) throw dbError;
+
+      // Refresh clothes list
+      const { data: clothes, error: clothesError } = await supabase
+        .from('clothes')
+        .select('*')
+        .eq('user_id', session.user.id)
+        .order('created_at', { ascending: false });
+
+      if (clothesError) throw clothesError;
+
+      setClothImages(clothes || []);
+      setClothImage(null);
+      setClothPreview("");
+    } catch (err: any) {
+      setError(err.message);
+      console.error('Error uploading cloth:', err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleProcessImages = async () => {
+    if (!selectedClothImage || !profileImage) {
+      setError("Please select a cloth image");
+      return;
+    }
+
+    // Prevent duplicate submissions while processing
+    if (isLoading) {
+      return;
+    }
+
+    setIsLoading(true);
+    setError(null);
+    setResultImage(""); // Clear previous result
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error('Not authenticated');
 
       const functionsUrl = process.env.NEXT_PUBLIC_SUPABASE_FUNCTIONS_URL;
       if (!functionsUrl) {
@@ -104,22 +175,46 @@ export default function Upload() {
           'Authorization': `Bearer ${session.access_token}`,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify(functionBody)
+        body: JSON.stringify({
+          image1: profileImage,
+          image2: selectedClothImage
+        })
       });
 
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Failed to process images');
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Failed to process images');
       }
 
       const data = await response.json();
-      console.log('Response:', data);
 
       if (!data?.resultImage) {
         throw new Error('No result image received from processing');
       }
 
       setResultImage(data.resultImage);
+
+      // Store the result in the outfits table using upsert
+      const { error: outfitError } = await supabase
+        .from('outfits')
+        .upsert(
+          {
+            user_id: session.user.id,
+            man_image_path: profileImage,
+            cloth_image_path: selectedClothImage,
+            result_image_path: data.resultImage,
+            created_at: new Date().toISOString()
+          },
+          {
+            onConflict: 'user_id,man_image_path,cloth_image_path',
+            ignoreDuplicates: true
+          }
+        );
+
+      if (outfitError) {
+        console.error('Error saving outfit:', outfitError);
+      }
+
     } catch (err: any) {
       setError(err.message);
       console.error('Error processing images:', err);
@@ -130,101 +225,109 @@ export default function Upload() {
 
   return (
     <div className="min-h-screen p-8">
-      <div className="max-w-2xl mx-auto bg-white p-8 rounded-lg shadow-md">
-        <h1 className="text-2xl font-bold mb-6 text-center">Upload Your Clothes</h1>
-        <p className="text-gray-600 mb-6 text-center">Please upload both images</p>
-
-        <form onSubmit={handleSubmit} className="space-y-6">
-          {error && (
-            <div className="text-red-600 bg-red-50 p-3 rounded text-center">
-              {error}
-            </div>
-          )}
-
-          <div className="flex flex-col items-center space-y-8">
-            {/* Man Image Upload */}
-            <div className="w-full max-w-md">
-              <div className="border-2 border-dashed border-green-300 p-4 rounded-lg">
-                <input
-                  type="file"
-                  onChange={handleManImageChange}
-                  accept="image/*"
-                  className="w-full"
-                />
-                <p className="text-sm text-gray-500 mt-2 text-center">Upload Person Image</p>
-              </div>
-              {manPreview && (
-                <div className="mt-4 mx-auto" style={{ width: '192px', height: '192px', position: 'relative' }}>
-                  <Image
-                    src={manPreview}
-                    alt="Person Preview"
-                    width={192}
-                    height={192}
-                    style={{
-                      width: '192px',
-                      height: '192px',
-                      objectFit: 'contain',
-                      borderRadius: '0.5rem'
-                    }}
-                  />
-                </div>
-              )}
-            </div>
-
-            {/* Cloth Image Upload */}
-            <div className="w-full max-w-md">
-              <div className="border-2 border-dashed border-green-300 p-4 rounded-lg">
-                <input
-                  type="file"
-                  onChange={handleClothImageChange}
-                  accept="image/*"
-                  className="w-full"
-                />
-                <p className="text-sm text-gray-500 mt-2 text-center">Upload Clothing Image</p>
-              </div>
-              {clothPreview && (
-                <div className="mt-4 mx-auto" style={{ width: '192px', height: '192px', position: 'relative' }}>
-                  <Image
-                    src={clothPreview}
-                    alt="Clothing Preview"
-                    width={192}
-                    height={192}
-                    style={{
-                      width: '192px',
-                      height: '192px',
-                      objectFit: 'contain',
-                      borderRadius: '0.5rem'
-                    }}
-                  />
-                </div>
-              )}
+      <div className="max-w-4xl mx-auto space-y-8">
+        {/* Profile Image Display */}
+        {profileImage && (
+          <div className="bg-white p-6 rounded-lg shadow-md">
+            <h2 className="text-xl font-bold mb-4">Your Profile Image</h2>
+            <div className="relative h-48 w-48 mx-auto">
+              <Image
+                src={profileImage}
+                alt="Profile"
+                fill
+                className="object-cover rounded-lg"
+                sizes="(max-width: 768px) 100vw, 50vw"
+              />
             </div>
           </div>
+        )}
 
-          <button
-            type="submit"
-            disabled={isLoading || !manImage || !clothImage}
-            className="w-full bg-green-600 text-white py-3 px-4 rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-          >
-            {isLoading ? 'Processing...' : 'Process Images'}
-          </button>
-        </form>
+        {/* Upload New Cloth */}
+        <div className="bg-white p-6 rounded-lg shadow-md">
+          <h2 className="text-xl font-bold mb-4">Upload New Cloth</h2>
+          <form onSubmit={handleUploadCloth} className="space-y-4">
+            {error && (
+              <div className="text-red-600 bg-red-50 p-3 rounded text-center">
+                {error}
+              </div>
+            )}
 
+            <div className="border-2 border-dashed border-gray-300 rounded-lg p-4">
+              <input
+                type="file"
+                onChange={handleClothImageChange}
+                accept="image/*"
+                className="w-full"
+              />
+            </div>
+
+            {clothPreview && (
+              <div className="relative h-48 w-48 mx-auto">
+                <Image
+                  src={clothPreview}
+                  alt="Cloth Preview"
+                  fill
+                  className="object-cover rounded-lg"
+                  sizes="(max-width: 768px) 100vw, 50vw"
+                />
+              </div>
+            )}
+
+            <button
+              type="submit"
+              disabled={isLoading || !clothImage}
+              className="w-full bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isLoading ? 'Uploading...' : 'Upload Cloth'}
+            </button>
+          </form>
+        </div>
+
+        {/* Cloth Images Grid */}
+        <div className="bg-white p-6 rounded-lg shadow-md">
+          <h2 className="text-xl font-bold mb-4">Your Clothes</h2>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            {clothImages.map((cloth) => (
+              <div
+                key={cloth.id}
+                className={`relative h-48 cursor-pointer ${
+                  selectedClothImage === cloth.url ? 'ring-4 ring-green-500' : ''
+                }`}
+                onClick={() => setSelectedClothImage(cloth.url)}
+              >
+                <Image
+                  src={cloth.url}
+                  alt="Cloth"
+                  fill
+                  className="object-cover rounded-lg"
+                  sizes="(max-width: 768px) 50vw, 25vw"
+                />
+              </div>
+            ))}
+          </div>
+
+          {clothImages.length > 0 && (
+            <button
+              onClick={handleProcessImages}
+              disabled={isLoading || !selectedClothImage}
+              className="mt-6 w-full bg-green-600 text-white py-2 px-4 rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isLoading ? 'Processing...' : 'Process Selected Image'}
+            </button>
+          )}
+        </div>
+
+        {/* Result Image */}
         {resultImage && (
-          <div className="mt-8">
-            <h2 className="text-xl font-bold mb-4 text-center">Result</h2>
-            <div className="mx-auto" style={{ width: '192px', height: '192px', position: 'relative' }}>
+          <div className="bg-white p-6 rounded-lg shadow-md">
+            <h2 className="text-xl font-bold mb-4">Result</h2>
+            <div className="relative h-96 w-full">
               <Image
                 src={resultImage}
-                alt="Processed Result"
-                width={192}
-                height={192}
-                style={{
-                  width: '192px',
-                  height: '192px',
-                  objectFit: 'contain',
-                  borderRadius: '0.5rem'
-                }}
+                alt="Result"
+                fill
+                className="object-contain rounded-lg"
+                sizes="(max-width: 768px) 100vw, 50vw"
               />
             </div>
           </div>
