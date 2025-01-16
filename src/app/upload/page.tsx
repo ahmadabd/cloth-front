@@ -7,10 +7,10 @@ import { supabase } from '@/lib/supabase';
 
 export default function Upload() {
   const router = useRouter();
-  const [image1, setImage1] = useState<File | null>(null);
-  const [image2, setImage2] = useState<File | null>(null);
-  const [preview1, setPreview1] = useState<string>("");
-  const [preview2, setPreview2] = useState<string>("");
+  const [manImage, setManImage] = useState<File | null>(null);
+  const [clothImage, setClothImage] = useState<File | null>(null);
+  const [manPreview, setManPreview] = useState<string>("");
+  const [clothPreview, setClothPreview] = useState<string>("");
   const [resultImage, setResultImage] = useState<string>("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -25,25 +25,25 @@ export default function Upload() {
     checkSession();
   }, [router]);
 
-  const handleImage1Change = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleManImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      setImage1(file);
-      setPreview1(URL.createObjectURL(file));
+      setManImage(file);
+      setManPreview(URL.createObjectURL(file));
     }
   };
 
-  const handleImage2Change = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleClothImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      setImage2(file);
-      setPreview2(URL.createObjectURL(file));
+      setClothImage(file);
+      setClothPreview(URL.createObjectURL(file));
     }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!image1 || !image2) {
+    if (!manImage || !clothImage) {
       setError("Please select both images");
       return;
     }
@@ -55,46 +55,69 @@ export default function Upload() {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) throw new Error('Not authenticated');
 
-      // Upload images to Supabase
       const uploadImage = async (image: File, index: number) => {
-        const fileExt = image.name.split('.').pop();
-        const fileName = `${session.user.id}/${Date.now()}-${index}.${fileExt}`;
-        
-        const { data, error } = await supabase.storage
-          .from('clothes')
-          .upload(fileName, image);
+        try {
+          const fileExt = image.name.split('.').pop();
+          const fileName = `${session.user.id}/${Date.now()}-${index}.${fileExt}`;
+          
+          const { data, error } = await supabase.storage
+            .from('clothes')
+            .upload(fileName, image);
 
-        if (error) throw error;
-        
-        const { data: { publicUrl } } = supabase.storage
-          .from('clothes')
-          .getPublicUrl(fileName);
+          if (error) {
+            console.error('Upload error:', error);
+            throw new Error(`Failed to upload image ${index}: ${error.message}`);
+          }
+          
+          const { data: { publicUrl } } = supabase.storage
+            .from('clothes')
+            .getPublicUrl(fileName);
 
-        return publicUrl;
+          return publicUrl;
+        } catch (err) {
+          console.error(`Error uploading image ${index}:`, err);
+          throw err;
+        }
       };
 
       const [url1, url2] = await Promise.all([
-        uploadImage(image1, 1),
-        uploadImage(image2, 2)
+        uploadImage(manImage, 1),
+        uploadImage(clothImage, 2)
       ]);
 
-      // TODO: Replace with your API endpoint
-      // const response = await fetch('YOUR_API_ENDPOINT', {
-      //   method: 'POST',
-      //   headers: {
-      //     'Content-Type': 'application/json',
-      //   },
-      //   body: JSON.stringify({
-      //     image1: url1,
-      //     image2: url2,
-      //   }),
-      // });
-      // const data = await response.json();
-      // setResultImage(data.resultImage);
+      console.log('Sending request with URLs:', { url1, url2 });
+      
+      const functionBody = {
+        image1: url1,
+        image2: url2
+      };
+      console.log('Request body:', functionBody);
 
-      setResultImage(url1); // Temporary: just show the first uploaded image
+      const { data, error } = await supabase.functions.invoke(
+        'process-images',
+        {
+          body: functionBody,
+          headers: {
+            Authorization: `Bearer ${session.access_token}`,
+          }
+        }
+      );
+
+      console.log('Response:', { data, error });
+
+      if (error) {
+        console.error('Processing error:', error);
+        throw new Error(`Failed to process images: ${error.message}`);
+      }
+
+      if (!data?.resultImage) {
+        throw new Error('No result image received from processing');
+      }
+
+      setResultImage(data.resultImage);
     } catch (err: any) {
       setError(err.message);
+      console.error('Error processing images:', err);
     } finally {
       setIsLoading(false);
     }
@@ -113,48 +136,60 @@ export default function Upload() {
             </div>
           )}
 
-          <div className="grid grid-cols-2 gap-8">
-            {/* First Image Upload */}
-            <div className="space-y-4">
-              <div className="border-2 border-dashed border-green-300 p-4 rounded-lg text-center">
+          <div className="flex flex-col items-center space-y-8">
+            {/* Man Image Upload */}
+            <div className="w-full max-w-md">
+              <div className="border-2 border-dashed border-green-300 p-4 rounded-lg">
                 <input
                   type="file"
-                  onChange={handleImage1Change}
+                  onChange={handleManImageChange}
                   accept="image/*"
                   className="w-full"
                 />
-                <p className="text-sm text-gray-500 mt-2">First Image</p>
+                <p className="text-sm text-gray-500 mt-2 text-center">Upload Person Image</p>
               </div>
-              {preview1 && (
-                <div className="w-[100px] h-[100px] relative mx-auto">
+              {manPreview && (
+                <div className="mt-4 mx-auto" style={{ width: '192px', height: '192px', position: 'relative' }}>
                   <Image
-                    src={preview1}
-                    alt="Preview 1"
-                    fill
-                    className="object-cover rounded-lg"
+                    src={manPreview}
+                    alt="Person Preview"
+                    width={192}
+                    height={192}
+                    style={{
+                      width: '192px',
+                      height: '192px',
+                      objectFit: 'contain',
+                      borderRadius: '0.5rem'
+                    }}
                   />
                 </div>
               )}
             </div>
 
-            {/* Second Image Upload */}
-            <div className="space-y-4">
-              <div className="border-2 border-dashed border-green-300 p-4 rounded-lg text-center">
+            {/* Cloth Image Upload */}
+            <div className="w-full max-w-md">
+              <div className="border-2 border-dashed border-green-300 p-4 rounded-lg">
                 <input
                   type="file"
-                  onChange={handleImage2Change}
+                  onChange={handleClothImageChange}
                   accept="image/*"
                   className="w-full"
                 />
-                <p className="text-sm text-gray-500 mt-2">Second Image</p>
+                <p className="text-sm text-gray-500 mt-2 text-center">Upload Clothing Image</p>
               </div>
-              {preview2 && (
-                <div className="w-[100px] h-[100px] relative mx-auto">
+              {clothPreview && (
+                <div className="mt-4 mx-auto" style={{ width: '192px', height: '192px', position: 'relative' }}>
                   <Image
-                    src={preview2}
-                    alt="Preview 2"
-                    fill
-                    className="object-cover rounded-lg"
+                    src={clothPreview}
+                    alt="Clothing Preview"
+                    width={192}
+                    height={192}
+                    style={{
+                      width: '192px',
+                      height: '192px',
+                      objectFit: 'contain',
+                      borderRadius: '0.5rem'
+                    }}
                   />
                 </div>
               )}
@@ -163,7 +198,7 @@ export default function Upload() {
 
           <button
             type="submit"
-            disabled={isLoading || !image1 || !image2}
+            disabled={isLoading || !manImage || !clothImage}
             className="w-full bg-green-600 text-white py-3 px-4 rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             {isLoading ? 'Processing...' : 'Process Images'}
@@ -173,12 +208,18 @@ export default function Upload() {
         {resultImage && (
           <div className="mt-8">
             <h2 className="text-xl font-bold mb-4 text-center">Result</h2>
-            <div className="w-[100px] h-[100px] relative mx-auto bg-gray-100 rounded-lg overflow-hidden">
+            <div className="mx-auto" style={{ width: '192px', height: '192px', position: 'relative' }}>
               <Image
                 src={resultImage}
                 alt="Processed Result"
-                fill
-                className="object-cover rounded-lg"
+                width={192}
+                height={192}
+                style={{
+                  width: '192px',
+                  height: '192px',
+                  objectFit: 'contain',
+                  borderRadius: '0.5rem'
+                }}
               />
             </div>
           </div>
@@ -186,4 +227,4 @@ export default function Upload() {
       </div>
     </div>
   );
-} 
+}

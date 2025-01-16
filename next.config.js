@@ -1,7 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   images: {
-    domains: ['xbjehtrzxkycliualili.supabase.co'], // Replace with your Supabase project domain
+    domains: ['xbjehtrzxkycliualili.supabase.co'], // Your Supabase project domain
   },
 };
 
