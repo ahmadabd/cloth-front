@@ -93,20 +93,27 @@ export default function Upload() {
       };
       console.log('Request body:', functionBody);
 
-      const { data, error } = await supabase.functions.invoke('process-images', {
-        body: functionBody,
+      const functionsUrl = process.env.NEXT_PUBLIC_SUPABASE_FUNCTIONS_URL;
+      if (!functionsUrl) {
+        throw new Error('Supabase Functions URL not configured');
+      }
+
+      const response = await fetch(`${functionsUrl}/process-images`, {
+        method: 'POST',
         headers: {
-          Authorization: `Bearer ${session.access_token}`,
+          'Authorization': `Bearer ${session.access_token}`,
           'Content-Type': 'application/json'
-        }
+        },
+        body: JSON.stringify(functionBody)
       });
 
-      console.log('Response:', { data, error });
-
-      if (error) {
-        console.error('Processing error:', error);
-        throw new Error(`Failed to process images: ${error.message}`);
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to process images');
       }
+
+      const data = await response.json();
+      console.log('Response:', data);
 
       if (!data?.resultImage) {
         throw new Error('No result image received from processing');
