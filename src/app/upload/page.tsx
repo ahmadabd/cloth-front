@@ -93,15 +93,13 @@ export default function Upload() {
       };
       console.log('Request body:', functionBody);
 
-      const { data, error } = await supabase.functions.invoke(
-        'process-images',
-        {
-          body: functionBody,
-          headers: {
-            Authorization: `Bearer ${session.access_token}`,
-          }
+      const { data, error } = await supabase.functions.invoke('process-images', {
+        body: functionBody,
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json'
         }
-      );
+      });
 
       console.log('Response:', { data, error });
 
