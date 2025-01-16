@@ -9,6 +9,14 @@ const nextConfig = {
       },
     ],
   },
+  // Exclude Supabase functions from the build
+  webpack: (config, { isServer }) => {
+    config.module.rules.push({
+      test: /supabase\/functions/,
+      loader: 'ignore-loader',
+    });
+    return config;
+  },
 };
 
 module.exports = nextConfig; 
