@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import Image from 'next/image';
 import { supabase } from '@/lib/supabase';
 
 interface ProfileData {
@@ -10,6 +11,7 @@ interface ProfileData {
   age: string;
   weight: string;
   height: string;
+  image_url?: string;
 }
 
 export default function ProfileSetup() {
@@ -17,12 +19,15 @@ export default function ProfileSetup() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string>("");
   const [form, setForm] = useState<ProfileData>({
     full_name: '',
     gender: '',
     age: '',
     weight: '',
     height: '',
+    image_url: '',
   });
 
   useEffect(() => {
@@ -40,7 +45,7 @@ export default function ProfileSetup() {
           .eq('user_id', session.user.id)
           .single();
 
-        if (profileError && profileError.code !== 'PGRST116') { // PGRST116 is the "not found" error code
+        if (profileError && profileError.code !== 'PGRST116') {
           throw profileError;
         }
 
@@ -51,7 +56,11 @@ export default function ProfileSetup() {
             age: profile.age?.toString() || '',
             weight: profile.weight?.toString() || '',
             height: profile.height?.toString() || '',
+            image_url: profile.image_url || '',
           });
+          if (profile.image_url) {
+            setImagePreview(profile.image_url);
+          }
         }
       } catch (err: any) {
         console.error('Error fetching profile:', err);
@@ -64,6 +73,14 @@ export default function ProfileSetup() {
     fetchProfile();
   }, [router]);
 
+  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setImageFile(file);
+      setImagePreview(URL.createObjectURL(file));
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSaving(true);
@@ -75,6 +92,28 @@ export default function ProfileSetup() {
         throw new Error('No authenticated user');
       }
 
+      let imageUrl = form.image_url;
+
+      // Upload image if a new one is selected
+      if (imageFile) {
+        const fileExt = imageFile.name.split('.').pop();
+        const fileName = `${session.user.id}/${Date.now()}.${fileExt}`;
+        
+        const { error: uploadError } = await supabase.storage
+          .from('profiles')
+          .upload(fileName, imageFile);
+
+        if (uploadError) {
+          throw new Error(`Failed to upload image: ${uploadError.message}`);
+        }
+        
+        const { data } = supabase.storage
+          .from('profiles')
+          .getPublicUrl(fileName);
+
+        imageUrl = data.publicUrl;
+      }
+
       // Check if profile exists
       const { data: existingProfile } = await supabase
         .from('profiles')
@@ -82,14 +121,17 @@ export default function ProfileSetup() {
         .eq('user_id', session.user.id)
         .single();
 
+      const profileData = {
+        ...form,
+        image_url: imageUrl,
+        updated_at: new Date().toISOString(),
+      };
+
       if (existingProfile) {
         // Update existing profile
         const { error: updateError } = await supabase
           .from('profiles')
-          .update({
-            ...form,
-            updated_at: new Date().toISOString(),
-          })
+          .update(profileData)
           .eq('user_id', session.user.id);
 
         if (updateError) throw updateError;
@@ -100,8 +142,7 @@ export default function ProfileSetup() {
           .insert([
             {
               user_id: session.user.id,
-              ...form,
-              updated_at: new Date().toISOString(),
+              ...profileData,
             }
           ]);
 
@@ -137,6 +178,36 @@ export default function ProfileSetup() {
             {error}
           </div>
         )}
+
+        {/* Image Upload */}
+        <div className="space-y-2">
+          <label className="block mb-2">Full Body Image</label>
+          <div className="border-2 border-dashed border-gray-300 rounded-lg p-4">
+            <input
+              type="file"
+              accept="image/*"
+              onChange={handleImageChange}
+              className="w-full"
+            />
+          </div>
+          {imagePreview && (
+            <div className="mt-4 relative h-64 w-full">
+              <Image
+                src={imagePreview}
+                alt="Profile Preview"
+                fill
+                className="object-contain rounded-lg"
+                onError={() => {
+                  setImagePreview("");
+                  setError("Failed to load image preview");
+                }}
+                sizes="(max-width: 768px) 100vw, 50vw"
+                priority
+                unoptimized
+              />
+            </div>
+          )}
+        </div>
 
         <div>
           <label className="block mb-2">Full Name</label>
