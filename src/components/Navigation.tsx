@@ -5,26 +5,67 @@ import { usePathname, useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { useState, useEffect } from 'react';
 
+// Add noFlash utility to prevent content flash
+const useNoFlash = () => {
+  const [isClient, setIsClient] = useState(false);
+  
+  useEffect(() => {
+    setIsClient(true);
+  }, []);
+  
+  return isClient;
+};
+
 export default function Navigation() {
   const pathname = usePathname();
   const router = useRouter();
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const isClient = useNoFlash();
 
   useEffect(() => {
-    checkSession();
+    const initializeAuth = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        setIsLoggedIn(!!session);
+      } catch (error) {
+        console.error('Error checking session:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    initializeAuth();
+
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       setIsLoggedIn(!!session);
     });
+
     return () => {
       subscription.unsubscribe();
     };
   }, []);
 
-  const checkSession = async () => {
-    const { data: { session } } = await supabase.auth.getSession();
-    setIsLoggedIn(!!session);
-  };
+  // Loading state with pre-styled content
+  if (!isClient || isLoading) {
+    return (
+      <nav className="sticky top-0 bg-gray-800 shadow-lg">
+        <div className="max-w-7xl mx-auto px-4">
+          <div className="flex justify-between h-16">
+            <div className="flex items-center">
+              <span className="text-white text-xl font-semibold">Virtual Wardrobe</span>
+            </div>
+            {/* Add skeleton loader for nav items */}
+            <div className="hidden md:flex items-center space-x-2">
+              <div className="w-20 h-8 bg-gray-700 rounded-md animate-pulse"></div>
+              <div className="w-20 h-8 bg-gray-700 rounded-md animate-pulse"></div>
+            </div>
+          </div>
+        </div>
+      </nav>
+    );
+  }
 
   const handleSignOut = async () => {
     try {
@@ -50,13 +91,13 @@ export default function Navigation() {
             </Link>
           </div>
 
-          {/* Desktop Navigation */}
+          {/* Desktop Navigation - Now with guaranteed styles */}
           <div className="hidden md:flex items-center space-x-2">
             {isLoggedIn ? (
               <>
                 <Link
                   href="/dashboard"
-                  className={`px-4 py-2 rounded-md text-sm font-medium transition-colors
+                  className={`inline-block px-4 py-2 rounded-md text-sm font-medium transition-colors
                     ${pathname === '/dashboard' 
                       ? 'bg-gray-900 text-white' 
                       : 'text-gray-300 hover:bg-gray-700 hover:text-white'}`}
@@ -65,7 +106,7 @@ export default function Navigation() {
                 </Link>
                 <Link
                   href="/upload"
-                  className={`px-4 py-2 rounded-md text-sm font-medium transition-colors
+                  className={`inline-block px-4 py-2 rounded-md text-sm font-medium transition-colors
                     ${pathname === '/upload' 
                       ? 'bg-gray-900 text-white' 
                       : 'text-gray-300 hover:bg-gray-700 hover:text-white'}`}
@@ -74,7 +115,7 @@ export default function Navigation() {
                 </Link>
                 <Link
                   href="/profile/setup"
-                  className={`px-4 py-2 rounded-md text-sm font-medium transition-colors
+                  className={`inline-block px-4 py-2 rounded-md text-sm font-medium transition-colors
                     ${pathname === '/profile/setup' 
                       ? 'bg-gray-900 text-white' 
                       : 'text-gray-300 hover:bg-gray-700 hover:text-white'}`}
@@ -83,7 +124,7 @@ export default function Navigation() {
                 </Link>
                 <button
                   onClick={handleSignOut}
-                  className="px-4 py-2 rounded-md text-sm font-medium bg-red-600 text-white hover:bg-red-700 transition-colors"
+                  className="inline-block px-4 py-2 rounded-md text-sm font-medium bg-red-600 text-white hover:bg-red-700 transition-colors"
                 >
                   Sign Out
                 </button>
@@ -92,7 +133,7 @@ export default function Navigation() {
               <>
                 <Link
                   href="/"
-                  className={`px-4 py-2 rounded-md text-sm font-medium transition-colors
+                  className={`inline-block px-4 py-2 rounded-md text-sm font-medium transition-colors
                     ${pathname === '/' 
                       ? 'bg-gray-900 text-white' 
                       : 'text-gray-300 hover:bg-gray-700 hover:text-white'}`}
@@ -101,7 +142,7 @@ export default function Navigation() {
                 </Link>
                 <Link
                   href="/auth/signin"
-                  className="px-4 py-2 rounded-md text-sm font-medium bg-blue-600 text-white hover:bg-blue-700 transition-colors"
+                  className="inline-block px-4 py-2 rounded-md text-sm font-medium bg-blue-600 text-white hover:bg-blue-700 transition-colors"
                 >
                   Sign In
                 </Link>
@@ -113,7 +154,8 @@ export default function Navigation() {
           <div className="md:hidden flex items-center">
             <button
               onClick={() => setIsMenuOpen(!isMenuOpen)}
-              className="p-2 rounded-md text-gray-400 hover:text-white hover:bg-gray-700"
+              className="inline-flex items-center justify-center p-2 rounded-md text-gray-400 hover:text-white hover:bg-gray-700"
+              aria-label={isMenuOpen ? 'Close menu' : 'Open menu'}
             >
               <svg
                 className="h-6 w-6"
@@ -132,14 +174,14 @@ export default function Navigation() {
           </div>
         </div>
 
-        {/* Mobile menu */}
+        {/* Mobile menu with guaranteed styles */}
         {isMenuOpen && (
           <div className="md:hidden py-2 space-y-1">
             {isLoggedIn ? (
               <>
                 <Link
                   href="/dashboard"
-                  className={`block px-4 py-2 rounded-md text-base font-medium transition-colors
+                  className={`block w-full px-4 py-2 rounded-md text-base font-medium transition-colors
                     ${pathname === '/dashboard' 
                       ? 'bg-gray-900 text-white' 
                       : 'text-gray-300 hover:bg-gray-700 hover:text-white'}`}
@@ -148,7 +190,7 @@ export default function Navigation() {
                 </Link>
                 <Link
                   href="/upload"
-                  className={`block px-4 py-2 rounded-md text-base font-medium transition-colors
+                  className={`block w-full px-4 py-2 rounded-md text-base font-medium transition-colors
                     ${pathname === '/upload' 
                       ? 'bg-gray-900 text-white' 
                       : 'text-gray-300 hover:bg-gray-700 hover:text-white'}`}
@@ -157,7 +199,7 @@ export default function Navigation() {
                 </Link>
                 <Link
                   href="/profile/setup"
-                  className={`block px-4 py-2 rounded-md text-base font-medium transition-colors
+                  className={`block w-full px-4 py-2 rounded-md text-base font-medium transition-colors
                     ${pathname === '/profile/setup' 
                       ? 'bg-gray-900 text-white' 
                       : 'text-gray-300 hover:bg-gray-700 hover:text-white'}`}
@@ -166,7 +208,7 @@ export default function Navigation() {
                 </Link>
                 <button
                   onClick={handleSignOut}
-                  className="w-full text-left px-4 py-2 rounded-md text-base font-medium bg-red-600 text-white hover:bg-red-700 transition-colors"
+                  className="block w-full text-left px-4 py-2 rounded-md text-base font-medium bg-red-600 text-white hover:bg-red-700 transition-colors"
                 >
                   Sign Out
                 </button>
@@ -175,7 +217,7 @@ export default function Navigation() {
               <>
                 <Link
                   href="/"
-                  className={`block px-4 py-2 rounded-md text-base font-medium transition-colors
+                  className={`block w-full px-4 py-2 rounded-md text-base font-medium transition-colors
                     ${pathname === '/' 
                       ? 'bg-gray-900 text-white' 
                       : 'text-gray-300 hover:bg-gray-700 hover:text-white'}`}
@@ -184,7 +226,7 @@ export default function Navigation() {
                 </Link>
                 <Link
                   href="/auth/signin"
-                  className="block px-4 py-2 rounded-md text-base font-medium bg-blue-600 text-white hover:bg-blue-700 transition-colors"
+                  className="block w-full px-4 py-2 rounded-md text-base font-medium bg-blue-600 text-white hover:bg-blue-700 transition-colors"
                 >
                   Sign In
                 </Link>
@@ -195,4 +237,4 @@ export default function Navigation() {
       </div>
     </nav>
   );
-} 
+}
