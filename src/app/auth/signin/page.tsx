@@ -59,11 +59,22 @@ export default function SignIn() {
     setError(null);
 
     try {
+      // Get the current domain
+      const redirectTo = typeof window !== 'undefined' 
+        ? `${window.location.origin}/questionnaire`
+        : process.env.NEXT_PUBLIC_SITE_URL 
+          ? `${process.env.NEXT_PUBLIC_SITE_URL}/questionnaire`
+          : null;
+
+      if (!redirectTo) {
+        throw new Error('Site URL not configured');
+      }
+
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
         options: {
-          emailRedirectTo: `${window.location.origin}/questionnaire`,
+          emailRedirectTo: redirectTo,
         },
       });
 
