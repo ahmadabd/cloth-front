@@ -14,11 +14,75 @@ interface Outfit {
   created_at: string;
 }
 
+interface ImageViewerProps {
+  src: string;
+  alt: string;
+  onClose: () => void;
+}
+
+function ImageViewer({ src, alt, onClose }: ImageViewerProps) {
+  const handleDownload = async () => {
+    try {
+      const response = await fetch(src);
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${alt}-${Date.now()}.jpg`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (error) {
+      console.error('Error downloading image:', error);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
+      <div className="relative max-w-4xl w-full bg-white rounded-lg overflow-hidden">
+        <div className="absolute top-4 right-4 z-10 space-x-2">
+          {/* Download button */}
+          <button
+            onClick={handleDownload}
+            className="bg-green-600 text-white p-2 rounded-full hover:bg-green-700 transition-colors"
+            title="Download Image"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+            </svg>
+          </button>
+          {/* Close button */}
+          <button
+            onClick={onClose}
+            className="bg-red-600 text-white p-2 rounded-full hover:bg-red-700 transition-colors"
+            title="Close"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+        <div className="relative h-[80vh] w-full">
+          <Image
+            src={src}
+            alt={alt}
+            fill
+            className="object-contain"
+            sizes="(max-width: 768px) 100vw, 80vw"
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Dashboard() {
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(true);
   const [outfits, setOutfits] = useState<Outfit[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [selectedImage, setSelectedImage] = useState<{ src: string; alt: string } | null>(null);
 
   useEffect(() => {
     const checkUserAndFetchData = async () => {
@@ -124,7 +188,10 @@ export default function Dashboard() {
                     <div className="space-y-4">
                       <h3 className="font-semibold text-gray-700">Original Images</h3>
                       <div className="grid grid-cols-2 gap-2">
-                        <div className="relative h-32">
+                        <div 
+                          className="relative h-32 cursor-pointer hover:opacity-90 transition-opacity"
+                          onClick={() => setSelectedImage({ src: outfit.man_image_path, alt: 'Person' })}
+                        >
                           <Image
                             src={outfit.man_image_path}
                             alt="Person"
@@ -133,7 +200,10 @@ export default function Dashboard() {
                             sizes="(max-width: 768px) 50vw, 33vw"
                           />
                         </div>
-                        <div className="relative h-32">
+                        <div 
+                          className="relative h-32 cursor-pointer hover:opacity-90 transition-opacity"
+                          onClick={() => setSelectedImage({ src: outfit.cloth_image_path, alt: 'Clothing' })}
+                        >
                           <Image
                             src={outfit.cloth_image_path}
                             alt="Clothing"
@@ -148,7 +218,10 @@ export default function Dashboard() {
                     {/* Result Image */}
                     <div className="space-y-4">
                       <h3 className="font-semibold text-gray-700">Result</h3>
-                      <div className="relative h-[calc(100%-24px)]">
+                      <div 
+                        className="relative h-32 cursor-pointer hover:opacity-90 transition-opacity"
+                        onClick={() => setSelectedImage({ src: outfit.result_image_path, alt: 'Result' })}
+                      >
                         <Image
                           src={outfit.result_image_path}
                           alt="Result"
@@ -163,6 +236,15 @@ export default function Dashboard() {
               </div>
             ))}
           </div>
+        )}
+
+        {/* Image Viewer Modal */}
+        {selectedImage && (
+          <ImageViewer
+            src={selectedImage.src}
+            alt={selectedImage.alt}
+            onClose={() => setSelectedImage(null)}
+          />
         )}
       </div>
     </div>
