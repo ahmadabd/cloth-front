@@ -112,37 +112,51 @@ export default function Dashboard() {
             </button>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
             {outfits.map((outfit) => (
-              <div key={outfit.id} className="bg-white rounded-lg shadow-md overflow-hidden">
+              <div key={outfit.id} className="bg-white rounded-lg shadow-lg overflow-hidden">
                 <div className="p-4">
                   <div className="text-sm text-gray-500 mb-4">
                     Created: {new Date(outfit.created_at).toLocaleDateString()}
                   </div>
-                  <div className="grid grid-cols-3 gap-2">
-                    <div className="relative h-32">
-                      <Image
-                        src={outfit.man_image_path}
-                        alt="Person"
-                        fill
-                        className="object-cover rounded-lg"
-                      />
+                  <div className="grid grid-cols-2 gap-4">
+                    {/* Original Images */}
+                    <div className="space-y-4">
+                      <h3 className="font-semibold text-gray-700">Original Images</h3>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="relative h-32">
+                          <Image
+                            src={outfit.man_image_path}
+                            alt="Person"
+                            fill
+                            className="object-cover rounded-lg"
+                            sizes="(max-width: 768px) 50vw, 33vw"
+                          />
+                        </div>
+                        <div className="relative h-32">
+                          <Image
+                            src={outfit.cloth_image_path}
+                            alt="Clothing"
+                            fill
+                            className="object-cover rounded-lg"
+                            sizes="(max-width: 768px) 50vw, 33vw"
+                          />
+                        </div>
+                      </div>
                     </div>
-                    <div className="relative h-32">
-                      <Image
-                        src={outfit.cloth_image_path}
-                        alt="Clothing"
-                        fill
-                        className="object-cover rounded-lg"
-                      />
-                    </div>
-                    <div className="relative h-32">
-                      <Image
-                        src={outfit.result_image_path}
-                        alt="Result"
-                        fill
-                        className="object-cover rounded-lg"
-                      />
+                    
+                    {/* Result Image */}
+                    <div className="space-y-4">
+                      <h3 className="font-semibold text-gray-700">Result</h3>
+                      <div className="relative h-[calc(100%-24px)]">
+                        <Image
+                          src={outfit.result_image_path}
+                          alt="Result"
+                          fill
+                          className="object-contain rounded-lg"
+                          sizes="(max-width: 768px) 100vw, 50vw"
+                        />
+                      </div>
                     </div>
                   </div>
                 </div>

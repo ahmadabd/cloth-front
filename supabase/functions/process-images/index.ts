@@ -18,27 +18,18 @@ serve(async (req: Request) => {
   }
 
   try {
-    // Log request details
-    console.log('Request method:', req.method);
-    console.log('Content-Type:', req.headers.get('content-type'));
-    console.log('Authorization:', req.headers.get('authorization')?.substring(0, 20) + '...');
-    
     // Get the raw body text
     const bodyText = await req.text();
-    console.log('Raw request body:', bodyText);
     
     // Try to parse the body
     let body;
     try {
       body = bodyText ? JSON.parse(bodyText) : null;
-      console.log('Parsed body:', body);
     } catch (parseError) {
-      console.error('JSON parse error:', parseError);
       return new Response(
         JSON.stringify({ 
           error: 'Invalid JSON in request body',
-          details: parseError.message,
-          receivedBody: bodyText
+          details: parseError.message
         }),
         { 
           status: 400,
@@ -49,10 +40,7 @@ serve(async (req: Request) => {
 
     if (!body) {
       return new Response(
-        JSON.stringify({ 
-          error: 'Missing request body',
-          receivedBody: bodyText
-        }),
+        JSON.stringify({ error: 'Missing request body' }),
         { 
           status: 400,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' }
@@ -95,14 +83,11 @@ serve(async (req: Request) => {
     }
 
     // Parse request body
-    const { image1: manImage, image2: clothImage } = body
+    const { image1: personImage, image2: garmentImage } = body
 
-    if (!manImage || !clothImage) {
+    if (!personImage || !garmentImage) {
       return new Response(
-        JSON.stringify({ 
-          error: 'Both image URLs are required',
-          receivedBody: body
-        }),
+        JSON.stringify({ error: 'Both image URLs are required' }),
         { 
           status: 400,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' }
@@ -110,49 +95,115 @@ serve(async (req: Request) => {
       )
     }
 
-    console.log('Processing images:', { manImage, clothImage });
-
-    // Mock processing - in real implementation, process images here
-    const mockResultPath = 'mock-result.jpg'
-    const resultImage = 'https://xbjehtrzxkycliualili.supabase.co/storage/v1/object/public/clothes/mock-result.jpg'
-
-    // Store paths in database
-    const { error: insertError } = await supabase
-      .from('outfits')
-      .insert({
-        user_id: user.id,
-        man_image_path: manImage,
-        cloth_image_path: clothImage,
-        result_image_path: resultImage
-      })
-
-    if (insertError) {
-      console.error('Database insert error:', insertError);
-      throw new Error(`Failed to save outfit: ${insertError.message}`)
+    // Get API key from environment variable
+    const apiKey = Deno.env.get('PIXELCUT_API_KEY')
+    if (!apiKey) {
+      return new Response(
+        JSON.stringify({ error: 'Pixelcut API key not configured' }),
+        { 
+          status: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        }
+      )
     }
 
-    const response = {
-      resultImage,
-      message: 'Images processed and saved successfully',
-      user_id: user.id
-    }
+    // Call Pixelcut API
+    try {
+      const pixelcutResponse = await fetch('https://api.developer.pixelcut.ai/v1/try-on', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'X-API-KEY': apiKey
+        },
+        body: JSON.stringify({
+          person_image_url: personImage,
+          garment_image_url: garmentImage
+        })
+      });
 
-    console.log('Sending response:', response);
-
-    return new Response(
-      JSON.stringify(response),
-      { 
-        status: 200,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      if (!pixelcutResponse.ok) {
+        const errorData = await pixelcutResponse.json().catch(() => ({}));
+        throw new Error(`Pixelcut API error: ${errorData.error || pixelcutResponse.statusText}`);
       }
-    )
+
+      const pixelcutData = await pixelcutResponse.json();
+      const resultImage = pixelcutData.result_url;
+
+      if (!resultImage) {
+        throw new Error('No result image URL received from Pixelcut API');
+      }
+
+      // Download the result image
+      const imageResponse = await fetch(resultImage);
+      if (!imageResponse.ok) {
+        throw new Error('Failed to download result image');
+      }
+
+      const imageBlob = await imageResponse.blob();
+      const fileName = `results/${user.id}/${Date.now()}.jpg`;
+
+      // Upload to Supabase Storage
+      const { error: uploadError, data: uploadData } = await supabase.storage
+        .from('clothes')
+        .upload(fileName, imageBlob, {
+          contentType: 'image/jpeg',
+          upsert: false
+        });
+
+      if (uploadError) {
+        throw new Error(`Failed to upload result image: ${uploadError.message}`);
+      }
+
+      // Get the public URL of the uploaded image
+      const { data: { publicUrl: storedResultImage } } = supabase.storage
+        .from('clothes')
+        .getPublicUrl(fileName);
+
+      // Store paths in database
+      const { error: insertError } = await supabase
+        .from('outfits')
+        .insert({
+          user_id: user.id,
+          man_image_path: personImage,
+          cloth_image_path: garmentImage,
+          result_image_path: storedResultImage
+        })
+
+      if (insertError) {
+        console.error('Database insert error:', insertError);
+        throw new Error(`Failed to save outfit: ${insertError.message}`)
+      }
+
+      return new Response(
+        JSON.stringify({
+          resultImage: storedResultImage,
+          message: 'Images processed and saved successfully'
+        }),
+        { 
+          status: 200,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        }
+      )
+
+    } catch (apiError) {
+      console.error('Pixelcut API error:', apiError);
+      return new Response(
+        JSON.stringify({ 
+          error: apiError instanceof Error ? apiError.message : 'Failed to process images'
+        }),
+        { 
+          status: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        }
+      )
+    }
 
   } catch (error) {
     console.error('Function error:', error);
     return new Response(
       JSON.stringify({ 
-        error: error instanceof Error ? error.message : 'Unknown error occurred',
-        details: error instanceof Error ? error.stack : undefined
+        error: error instanceof Error ? error.message : 'Unknown error occurred'
       }),
       { 
         status: 500,
