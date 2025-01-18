@@ -100,11 +100,18 @@ export default function Dashboard() {
           .eq('user_id', session.user.id)
           .single();
 
-        if (profileError && profileError.code !== 'PGRST116') {
-          console.error('Error fetching profile:', profileError);
+        if (profileError) {
+          if (profileError.code === 'PGRST116') {
+            // No profile found
+            setIsLoading(false);
+            router.push('/profile/setup');
+            return;
+          }
+          throw profileError;
         }
 
         if (!profile) {
+          setIsLoading(false);
           router.push('/profile/setup');
           return;
         }
@@ -135,7 +142,10 @@ export default function Dashboard() {
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <div className="text-lg">Loading...</div>
+        <div className="animate-pulse flex flex-col items-center space-y-4">
+          <div className="w-12 h-12 border-4 border-green-600 border-t-transparent rounded-full animate-spin"></div>
+          <div className="text-lg text-gray-600">Loading...</div>
+        </div>
       </div>
     );
   }
